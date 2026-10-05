@@ -1,67 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as LucideIcons from 'lucide-react';
+import { supabase } from '../services/supabaseClient'; // Importación añadida
 
-// Wrapper para usar los íconos dinámicamente como los tenías en HTML
 const Icon = ({ name, className }) => {
     const LucideIcon = LucideIcons[name];
     if (!LucideIcon) return null;
     return <LucideIcon className={className} />;
 };
-
-const initialData = [
-    {
-        id: 1, name: "Troncal Centro (Valencia - Maracay)", region: "Central", estado: "Carabobo / Aragua",
-        km: 52, hilos: 48, mangas: 6, reservas: 4, postores: { fibex: 120, edc: 45, cantv: 30, otros: 10 },
-        ejecutor: "Contratista - RedesPlus", status: "En Progreso", progress: 45,
-        fases: {
-            fase1: { otdr: true, kmz: true, inventario: true },
-            fase2: { picaPoda: true },
-            fase3: { mangas: false, fusion: false, certificacion: false },
-            fase4: { entregables: false }
-        },
-        attachments: { fase1: {}, fase2: {}, fase3: {}, fase4: {} }, hilosDistancias: {},
-        notes: "Tramo crítico. Cuadrilla en sitio realizando pica y poda. Se detectó torre con soporte oxidado en el km 42."
-    },
-    {
-        id: 2, name: "Troncal Capital (Maracay - Caracas)", region: "Capital", estado: "Aragua / Miranda / Dtto. Capital",
-        km: 115, hilos: 48, mangas: 12, reservas: 8, postores: { fibex: 210, edc: 80, cantv: 50, otros: 15 },
-        ejecutor: "FIBEX (Interno)", status: "En Progreso", progress: 20,
-        fases: {
-            fase1: { otdr: true, kmz: true, inventario: false },
-            fase2: { picaPoda: false },
-            fase3: { mangas: false, fusion: false, certificacion: false },
-            fase4: { entregables: false }
-        },
-        attachments: { fase1: {}, fase2: {}, fase3: {}, fase4: {} }, hilosDistancias: {},
-        notes: "A la espera de material de herrajes para iniciar Fase 2 y validación de actas conjuntas."
-    },
-    {
-        id: 3, name: "Troncal Llano (San Juan - Calabozo)", region: "Los Llanos", estado: "Guárico",
-        km: 132, hilos: 24, mangas: 10, reservas: 6, postores: { fibex: 180, edc: 60, cantv: 40, otros: 5 },
-        ejecutor: "FIBEX (Interno)", status: "Completado", progress: 100,
-        fases: {
-            fase1: { otdr: true, kmz: true, inventario: true },
-            fase2: { picaPoda: true },
-            fase3: { mangas: true, fusion: true, certificacion: true },
-            fase4: { entregables: true }
-        },
-        attachments: { fase1: {}, fase2: {}, fase3: {}, fase4: {} }, hilosDistancias: {},
-        notes: "Tramo recuperado 100%. Certificación OTDR entregada a provisión. Entregables semanales validados."
-    },
-    {
-        id: 4, name: "Troncal Oriente (Barcelona - Anaco)", region: "Oriental", estado: "Anzoátegui",
-        km: 94, hilos: 24, mangas: 8, reservas: 5, postores: { fibex: 140, edc: 50, cantv: 35, otros: 8 },
-        ejecutor: "Contratista - FibraNorte", status: "Pendiente", progress: 0,
-        fases: {
-            fase1: { otdr: false, kmz: false, inventario: false },
-            fase2: { picaPoda: false },
-            fase3: { mangas: false, fusion: false, certificacion: false },
-            fase4: { entregables: false }
-        },
-        attachments: { fase1: {}, fase2: {}, fase3: {}, fase4: {} }, hilosDistancias: {},
-        notes: "Programado para iniciar despliegue de cuadrillas en la Semana 3."
-    }
-];
 
 const phaseConfig = {
     fase1: {
@@ -83,13 +28,19 @@ const phaseConfig = {
 };
 
 export default function DashboardTroncales({ session }) {
-    const [tramos, setTramos] = useState(initialData);
+    // INICIALIZAR EL ESTADO COMO ARRAY VACÍO
+    const [tramos, setTramos] = useState([]);
+    const [isLoadingData, setIsLoadingData] = useState(true);
     const [selectedTramo, setSelectedTramo] = useState(null);
     const [toast, setToast] = useState(null);
+    
+    // Filtros
     const [regionFilter, setRegionFilter] = useState('Todas');
     const [estadoFilter, setEstadoFilter] = useState('Todos');
     const [statusFilter, setStatusFilter] = useState('Todos');
     const [ejecutorFilter, setEjecutorFilter] = useState('Todos');
+    
+    // Edición y Creación
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState(null);
     const [isCreating, setIsCreating] = useState(false);
@@ -98,6 +49,34 @@ export default function DashboardTroncales({ session }) {
         postFibex: '', postEdc: '', postCantv: '', postOtros: '', notes: '', ejecutorType: 'FIBEX', contratistaName: '' 
     });
     const [expandedHilos, setExpandedHilos] = useState(false);
+    const [isUploading, setIsUploading] = useState(false);
+
+    // 1. CARGAR DATOS REALES DESDE SUPABASE
+    useEffect(() => {
+        fetchTramos();
+    }, []);
+
+    const fetchTramos = async () => {
+        setIsLoadingData(true);
+        try {
+            const { data, error } = await supabase
+                .from('control_red_troncal')
+                .select('*')
+                .order('id', { ascending: true });
+            
+            if (error) throw error;
+            setTramos(data || []);
+        } catch (error) {
+            showToast('Error cargando tramos de la base de datos', 'error');
+        } finally {
+            setIsLoadingData(false);
+        }
+    };
+
+    const showToast = (message, type = 'info') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
+    };
 
     const validateMangasLimit = (km, mangas) => {
         const numKm = Number(km) || 0;
@@ -107,10 +86,7 @@ export default function DashboardTroncales({ session }) {
     };
 
     const exportToExcel = () => {
-        if (!window.XLSX) {
-            setToast({ message: 'Error cargando librería de Excel', type: 'error' });
-            return;
-        }
+        if (!window.XLSX) return showToast('Error cargando librería de Excel', 'error');
         const exportData = tramos.map(t => ({
             'ID': t.id, 'Nombre del Tramo': t.name, 'Región': t.region, 'Estado': t.estado,
             'Kilómetros': t.km, 'Hilos': t.hilos, 'Ejecutor': t.ejecutor || 'FIBEX (Interno)',
@@ -120,15 +96,11 @@ export default function DashboardTroncales({ session }) {
         const workbook = window.XLSX.utils.book_new();
         window.XLSX.utils.book_append_sheet(workbook, worksheet, "Tramos");
         window.XLSX.writeFile(workbook, "Estatus_Red_Troncal.xlsx");
-        setToast({ message: 'Reporte Excel descargado', type: 'success' });
-        setTimeout(() => setToast(null), 3000);
+        showToast('Reporte Excel descargado', 'success');
     };
 
     const exportToPDF = () => {
-        if (!window.jspdf || !window.jspdf.jsPDF) {
-            setToast({ message: 'Error cargando librería de PDF', type: 'error' });
-            return;
-        }
+        if (!window.jspdf || !window.jspdf.jsPDF) return showToast('Error cargando librería de PDF', 'error');
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('landscape');
         doc.setFontSize(16);
@@ -148,57 +120,116 @@ export default function DashboardTroncales({ session }) {
             headStyles: { fillColor: [37, 99, 235] }, alternateRowStyles: { fillColor: [248, 250, 252] }
         });
         doc.save("Estatus_Red_Troncal.pdf");
-        setToast({ message: 'Reporte PDF descargado', type: 'success' });
-        setTimeout(() => setToast(null), 3000);
+        showToast('Reporte PDF descargado', 'success');
     };
 
-    const handleFileUpload = (tramoId, faseKey, taskKey, event) => {
+    // 2. SUBIDA REAL DE ARCHIVOS A SUPABASE STORAGE
+    const handleFileUpload = async (tramoId, faseKey, taskKey, event) => {
         const files = event.target.files;
         if (!files || files.length === 0) return;
-        setTramos(prev => prev.map(tramo => {
-            if (tramo.id === tramoId) {
-                const currentAttachments = tramo.attachments || { fase1: {}, fase2: {}, fase3: {}, fase4: {} };
-                const taskAttachments = currentAttachments[faseKey]?.[taskKey] || [];
-                const newFilesArray = Array.from(files).map(file => ({ name: file.name, type: file.type, size: file.size, id: Math.random().toString(36).substring(2, 9) }));
-                const updatedAttachments = { ...currentAttachments, [faseKey]: { ...(currentAttachments[faseKey] || {}), [taskKey]: [...taskAttachments, ...newFilesArray] } };
-                const updatedTramo = { ...tramo, attachments: updatedAttachments };
-                if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
-                return updatedTramo;
+        setIsUploading(true);
+        
+        try {
+            const currentTramo = tramos.find(t => t.id === tramoId);
+            const currentAttachments = currentTramo.attachments || { fase1: {}, fase2: {}, fase3: {}, fase4: {} };
+            const taskAttachments = currentAttachments[faseKey]?.[taskKey] || [];
+            
+            const uploadedFilesArray = [];
+
+            for (const file of files) {
+                const fileExt = file.name.split('.').pop();
+                const fileName = `${tramoId}_${faseKey}_${taskKey}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+                const filePath = `${tramoId}/${fileName}`;
+
+                const { error: uploadError } = await supabase.storage.from('soportes_troncales').upload(filePath, file);
+                if (uploadError) throw uploadError;
+
+                const { data: publicUrlData } = supabase.storage.from('soportes_troncales').getPublicUrl(filePath);
+
+                uploadedFilesArray.push({
+                    id: fileName,
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    url: publicUrlData.publicUrl,
+                    path: filePath
+                });
             }
-            return tramo;
-        }));
-        setToast({ message: `${files.length} archivo(s) adjuntado(s) exitosamente`, type: 'success' });
-        setTimeout(() => setToast(null), 3000);
-        event.target.value = '';
+
+            const updatedAttachments = { 
+                ...currentAttachments, 
+                [faseKey]: { 
+                    ...(currentAttachments[faseKey] || {}), 
+                    [taskKey]: [...taskAttachments, ...uploadedFilesArray] 
+                } 
+            };
+
+            const { error: updateError } = await supabase
+                .from('control_red_troncal')
+                .update({ attachments: updatedAttachments })
+                .eq('id', tramoId);
+
+            if (updateError) throw updateError;
+
+            const updatedTramo = { ...currentTramo, attachments: updatedAttachments };
+            setTramos(prev => prev.map(t => t.id === tramoId ? updatedTramo : t));
+            if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
+            
+            showToast(`${files.length} archivo(s) guardado(s) en la nube`, 'success');
+        } catch (error) {
+            showToast('Error al subir archivos', 'error');
+        } finally {
+            setIsUploading(false);
+            event.target.value = '';
+        }
     };
 
-    const handleRemoveFile = (tramoId, faseKey, taskKey, fileId) => {
-        setTramos(prev => prev.map(tramo => {
-            if (tramo.id === tramoId) {
-                const currentAttachments = tramo.attachments || { fase1: {}, fase2: {}, fase3: {}, fase4: {} };
-                const taskAttachments = currentAttachments[faseKey]?.[taskKey] || [];
-                const updatedTaskAttachments = taskAttachments.filter(f => f.id !== fileId);
-                const updatedAttachments = { ...currentAttachments, [faseKey]: { ...(currentAttachments[faseKey] || {}), [taskKey]: updatedTaskAttachments } };
-                const updatedTramo = { ...tramo, attachments: updatedAttachments };
-                if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
-                return updatedTramo;
-            }
-            return tramo;
-        }));
-        setToast({ message: 'Documento de soporte eliminado', type: 'info' });
-        setTimeout(() => setToast(null), 3000);
+    // 3. ELIMINAR ARCHIVOS DEL STORAGE Y BASE DE DATOS
+    const handleRemoveFile = async (tramoId, faseKey, taskKey, fileObj) => {
+        try {
+            const { error: storageError } = await supabase.storage.from('soportes_troncales').remove([fileObj.path]);
+            if (storageError) throw storageError;
+
+            const currentTramo = tramos.find(t => t.id === tramoId);
+            const currentAttachments = currentTramo.attachments;
+            const updatedTaskAttachments = currentAttachments[faseKey][taskKey].filter(f => f.id !== fileObj.id);
+            
+            const updatedAttachments = { ...currentAttachments, [faseKey]: { ...currentAttachments[faseKey], [taskKey]: updatedTaskAttachments } };
+            
+            const { error: dbError } = await supabase.from('control_red_troncal').update({ attachments: updatedAttachments }).eq('id', tramoId);
+            if (dbError) throw dbError;
+
+            const updatedTramo = { ...currentTramo, attachments: updatedAttachments };
+            setTramos(prev => prev.map(t => t.id === tramoId ? updatedTramo : t));
+            if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
+            
+            showToast('Documento eliminado de la nube', 'info');
+        } catch (error) {
+            showToast('Error al eliminar archivo', 'error');
+        }
     };
 
     const handleEditClick = () => { setEditData({ ...selectedTramo }); setIsEditing(true); };
     const handleCancelEdit = () => { setIsEditing(false); setEditData(null); };
 
-    const handleSaveEdit = () => {
-        const updatedFields = { name: editData.name, region: editData.region, estado: editData.estado, km: editData.km, hilos: editData.hilos, ejecutor: editData.ejecutor, notes: editData.notes };
-        setTramos(prev => prev.map(t => t.id === editData.id ? { ...t, ...updatedFields } : t));
-        setSelectedTramo(prev => ({ ...prev, ...updatedFields }));
-        setIsEditing(false);
-        setToast({ message: 'Información del tramo actualizada', type: 'success' });
-        setTimeout(() => setToast(null), 3000);
+    // 4. GUARDAR EDICIÓN BÁSICA EN SUPABASE
+    const handleSaveEdit = async () => {
+        try {
+            const updatedFields = { 
+                name: editData.name, region: editData.region, estado: editData.estado, 
+                km: editData.km, hilos: editData.hilos, ejecutor: editData.ejecutor, notes: editData.notes 
+            };
+            
+            const { error } = await supabase.from('control_red_troncal').update(updatedFields).eq('id', editData.id);
+            if (error) throw error;
+
+            setTramos(prev => prev.map(t => t.id === editData.id ? { ...t, ...updatedFields } : t));
+            setSelectedTramo(prev => ({ ...prev, ...updatedFields }));
+            setIsEditing(false);
+            showToast('Cambios guardados en la base de datos', 'success');
+        } catch (error) {
+            showToast('Error al actualizar registro', 'error');
+        }
     };
 
     const handleInputChange = (e) => {
@@ -211,46 +242,49 @@ export default function DashboardTroncales({ session }) {
         setNewTramo(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleCreateSubmit = () => {
-        if (!newTramo.name.trim()) {
-            setToast({ message: 'El nombre del tramo es obligatorio', type: 'error' });
-            setTimeout(() => setToast(null), 3000);
-            return;
-        }
+    // 5. CREAR NUEVO REGISTRO EN SUPABASE
+    const handleCreateSubmit = async () => {
+        if (!newTramo.name.trim()) return showToast('El nombre del tramo es obligatorio', 'error');
+        
         const kmVal = Number(newTramo.km) || 0;
         const mangasVal = Number(newTramo.mangas) || 0;
         const validation = validateMangasLimit(kmVal, mangasVal);
-        if (validation.excede) {
-            setToast({ message: `Advertencia: El máx. permitido son 3 mangas por km (${validation.maxPermitidas} para ${kmVal} km)`, type: 'error' });
-            setTimeout(() => setToast(null), 4000);
-            return;
-        }
+        if (validation.excede) return showToast(`Advertencia: El máx. permitido son 3 mangas por km (${validation.maxPermitidas})`, 'error');
+        
         const ejecutorFinal = newTramo.ejecutorType === 'FIBEX' ? 'FIBEX (Interno)' : (newTramo.contratistaName.trim() || 'Contratista Sin Nombre');
-        const newId = tramos.length > 0 ? Math.max(...tramos.map(t => t.id)) + 1 : 1;
+        
         const newEntry = {
-            id: newId, name: newTramo.name, region: newTramo.region || 'Sin especificar', estado: newTramo.estado || 'Sin especificar',
+            name: newTramo.name, region: newTramo.region || 'Sin especificar', estado: newTramo.estado || 'Sin especificar',
             km: Number(newTramo.km) || 0, hilos: Number(newTramo.hilos) || 0, mangas: Number(newTramo.mangas) || 0, reservas: Number(newTramo.reservas) || 0,
             postores: { fibex: Number(newTramo.postFibex) || 0, edc: Number(newTramo.postEdc) || 0, cantv: Number(newTramo.postCantv) || 0, otros: Number(newTramo.postOtros) || 0 },
             ejecutor: ejecutorFinal, status: "Pendiente", progress: 0,
             fases: { fase1: { otdr: false, kmz: false, inventario: false }, fase2: { picaPoda: false }, fase3: { mangas: false, fusion: false, certificacion: false }, fase4: { entregables: false } },
-            attachments: { fase1: {}, fase2: {}, fase3: {}, fase4: {} }, hilosDistancias: {}, notes: newTramo.notes || 'Tramo recién registrado.'
+            attachments: { fase1: {}, fase2: {}, fase3: {}, fase4: {} }, hilos_distancias: {}, notes: newTramo.notes || 'Tramo recién registrado.'
         };
-        setTramos(prev => [...prev, newEntry]);
-        setIsCreating(false);
-        setNewTramo({ name: '', region: '', estado: '', km: '', hilos: '', mangas: '', reservas: '', postFibex: '', postEdc: '', postCantv: '', postOtros: '', notes: '', ejecutorType: 'FIBEX', contratistaName: '' });
-        setToast({ message: 'Nueva troncal agregada', type: 'success' });
-        setTimeout(() => setToast(null), 3000);
+
+        try {
+            const { data, error } = await supabase.from('control_red_troncal').insert([newEntry]).select();
+            if (error) throw error;
+
+            setTramos(prev => [...prev, data[0]]);
+            setIsCreating(false);
+            setNewTramo({ name: '', region: '', estado: '', km: '', hilos: '', mangas: '', reservas: '', postFibex: '', postEdc: '', postCantv: '', postOtros: '', notes: '', ejecutorType: 'FIBEX', contratistaName: '' });
+            showToast('Nueva troncal registrada en la nube', 'success');
+        } catch (error) {
+            showToast('Error creando troncal', 'error');
+        }
     };
 
-    const handleHiloDistanceChange = (tramoId, hiloIndex, value) => {
-        setTramos(prev => prev.map(tramo => {
-            if (tramo.id === tramoId) {
-                const updatedTramo = { ...tramo, hilosDistancias: { ...(tramo.hilosDistancias || {}), [hiloIndex]: value } };
-                if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
-                return updatedTramo;
-            }
-            return tramo;
-        }));
+    // 6. ACTUALIZAR MEDICIONES OTDR EN SUPABASE
+    const handleHiloDistanceChange = async (tramoId, hiloIndex, value) => {
+        const currentTramo = tramos.find(t => t.id === tramoId);
+        const updatedDistancias = { ...(currentTramo.hilos_distancias || {}), [hiloIndex]: value };
+        
+        const updatedTramo = { ...currentTramo, hilos_distancias: updatedDistancias };
+        setTramos(prev => prev.map(t => t.id === tramoId ? updatedTramo : t));
+        if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
+
+        await supabase.from('control_red_troncal').update({ hilos_distancias: updatedDistancias }).eq('id', tramoId);
     };
 
     const calculateProgress = (fases) => {
@@ -264,27 +298,36 @@ export default function DashboardTroncales({ session }) {
         return totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
     };
 
-    const toggleTask = (tramoId, faseKey, taskKey) => {
-        setTramos(prevTramos => prevTramos.map(tramo => {
-            if (tramo.id === tramoId) {
-                const isCompleted = !tramo.fases[faseKey][taskKey];
-                const updatedFases = { ...tramo.fases, [faseKey]: { ...tramo.fases[faseKey], [taskKey]: isCompleted } };
-                const newProgress = calculateProgress(updatedFases);
-                let newStatus = "En Progreso";
-                if (newProgress === 100) newStatus = "Completado";
-                else if (newProgress === 0) newStatus = "Pendiente";
-                const updatedTramo = { ...tramo, fases: updatedFases, progress: newProgress, status: newStatus };
-                if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
-                const taskName = phaseConfig[faseKey].tasks.find(t => t.id === taskKey).label;
-                setToast({ message: `${isCompleted ? 'Completado' : 'Pendiente'}: ${taskName}`, type: isCompleted ? 'success' : 'info' });
-                setTimeout(() => setToast(null), 3000);
-                return updatedTramo;
-            }
-            return tramo;
-        }));
+    // 7. ACTUALIZAR CHECKBOX DE FASES EN SUPABASE
+    const toggleTask = async (tramoId, faseKey, taskKey) => {
+        const currentTramo = tramos.find(t => t.id === tramoId);
+        const isCompleted = !currentTramo.fases[faseKey][taskKey];
+        const updatedFases = { ...currentTramo.fases, [faseKey]: { ...currentTramo.fases[faseKey], [taskKey]: isCompleted } };
+        
+        const newProgress = calculateProgress(updatedFases);
+        let newStatus = "En Progreso";
+        if (newProgress === 100) newStatus = "Completado";
+        else if (newProgress === 0) newStatus = "Pendiente";
+        
+        const updatedTramo = { ...currentTramo, fases: updatedFases, progress: newProgress, status: newStatus };
+        
+        setTramos(prev => prev.map(t => t.id === tramoId ? updatedTramo : t));
+        if (selectedTramo && selectedTramo.id === tramoId) setSelectedTramo(updatedTramo);
+        
+        try {
+            const { error } = await supabase.from('control_red_troncal').update({ fases: updatedFases, progress: newProgress, status: newStatus }).eq('id', tramoId);
+            if (error) throw error;
+            const taskName = phaseConfig[faseKey].tasks.find(t => t.id === taskKey).label;
+            showToast(`${isCompleted ? 'Completado' : 'Pendiente'}: ${taskName}`, isCompleted ? 'success' : 'info');
+        } catch (error) {
+            showToast('Error sincronizando estado', 'error');
+            fetchTramos();
+        }
     };
 
     const renderDashboard = () => {
+        if (isLoadingData) return <div className="flex justify-center items-center py-20"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
+
         const totalTramos = tramos.length;
         const completados = tramos.filter(t => t.progress === 100).length;
         const enProgreso = tramos.filter(t => t.progress > 0 && t.progress < 100).length;
@@ -313,7 +356,7 @@ export default function DashboardTroncales({ session }) {
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
                         <div className="flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-lg border border-blue-100 w-max">
                             <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span></span>
-                            <span className="text-sm font-medium text-blue-700 hidden lg:inline">Sistema en vivo</span>
+                            <span className="text-sm font-medium text-blue-700 hidden lg:inline">Conectado a BD</span>
                         </div>
                         <div className="flex items-center gap-2">
                             <button onClick={exportToExcel} className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 px-3 py-2 rounded-lg transition-colors text-sm font-medium shadow-sm"><Icon name="Download" className="w-4 h-4" /> Excel</button>
@@ -343,7 +386,9 @@ export default function DashboardTroncales({ session }) {
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="px-4 md:px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center"><h2 className="text-lg font-semibold text-slate-800">Tramos Asignados</h2><span className="text-sm text-slate-500 font-medium bg-white px-2 py-1 rounded-md border border-slate-200 shadow-sm">{filteredTramos.length} resultados</span></div>
                     <div className="divide-y divide-slate-100">
-                        {filteredTramos.map((tramo) => (
+                        {filteredTramos.length === 0 ? (
+                            <div className="p-8 text-center text-slate-500">No hay tramos registrados que coincidan con los filtros.</div>
+                        ) : filteredTramos.map((tramo) => (
                             <div key={tramo.id} className="p-4 md:p-6 hover:bg-slate-50 transition-colors cursor-pointer flex flex-col lg:flex-row lg:items-center justify-between gap-4" onClick={() => { setSelectedTramo(tramo); setExpandedHilos(false); }}>
                                 <div className="flex-1">
                                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-1">
@@ -442,7 +487,7 @@ export default function DashboardTroncales({ session }) {
                             {expandedHilos && (
                                 <div className="p-4 grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-3 max-h-72 overflow-y-auto bg-slate-50/50">
                                     {Array.from({ length: selectedTramo.hilos || 0 }).map((_, i) => {
-                                        const hiloVal = selectedTramo.hilosDistancias?.[i + 1];
+                                        const hiloVal = selectedTramo.hilos_distancias?.[i + 1];
                                         const targetKm = Number(selectedTramo.km) || 0;
                                         const numVal = Number(hiloVal);
                                         const isFilled = hiloVal !== undefined && hiloVal !== '';
@@ -451,7 +496,10 @@ export default function DashboardTroncales({ session }) {
                                         return (
                                             <div key={i} className={`flex flex-col p-2 rounded-lg border shadow-sm focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all ${statusColor}`}>
                                                 <label className="text-[10px] font-bold text-slate-500 text-center mb-1">HILO {i + 1}</label>
-                                                <div className="flex items-center border-t border-slate-100/80 pt-1 mt-1"><input type="number" step="0.01" className="w-full text-center text-sm font-medium border-0 focus:ring-0 outline-none p-0 text-slate-700 bg-transparent" placeholder="Km" value={hiloVal || ''} onChange={(e) => handleHiloDistanceChange(selectedTramo.id, i + 1, e.target.value)} /></div>
+                                                <div className="flex items-center border-t border-slate-100/80 pt-1 mt-1"><input type="number" step="0.01" className="w-full text-center text-sm font-medium border-0 focus:ring-0 outline-none p-0 text-slate-700 bg-transparent" placeholder="Km" value={hiloVal || ''} onBlur={(e) => handleHiloDistanceChange(selectedTramo.id, i + 1, e.target.value)} onChange={(e) => {
+                                                    const updated = {...selectedTramo, hilos_distancias: {...selectedTramo.hilos_distancias, [i+1]: e.target.value}};
+                                                    setSelectedTramo(updated);
+                                                }} /></div>
                                             </div>
                                         );
                                     })}
@@ -482,11 +530,18 @@ export default function DashboardTroncales({ session }) {
                                                     {taskAttachments.length > 0 && (
                                                         <div className="flex flex-wrap gap-2 pl-8">
                                                             {taskAttachments.map((att) => (
-                                                                <div key={att.id} className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100 text-xs shadow-sm"><Icon name="Paperclip" className="w-3.5 h-3.5 flex-shrink-0" /><span className="max-w-[140px] truncate font-medium">{att.name}</span><button onClick={() => handleRemoveFile(selectedTramo.id, faseKey, task.id, att.id)} className="text-blue-400 hover:text-red-500 transition-colors ml-1 p-0.5 hover:bg-blue-100 rounded"><Icon name="X" className="w-3.5 h-3.5" /></button></div>
+                                                                <div key={att.id} className="flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-100 text-xs shadow-sm">
+                                                                    <a href={att.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 hover:underline text-blue-700"><Icon name="ExternalLink" className="w-3.5 h-3.5 flex-shrink-0" /><span className="max-w-[140px] truncate font-medium">{att.name}</span></a>
+                                                                    <button onClick={() => handleRemoveFile(selectedTramo.id, faseKey, task.id, att)} className="text-blue-400 hover:text-red-500 transition-colors ml-1 p-0.5 hover:bg-blue-100 rounded"><Icon name="X" className="w-3.5 h-3.5" /></button>
+                                                                </div>
                                                             ))}
                                                         </div>
                                                     )}
-                                                    <div className="pl-8 pt-1"><label className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-blue-600 cursor-pointer px-3 py-1.5 bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 rounded-lg transition-all shadow-sm"><Icon name="Upload" className="w-4 h-4" /><span>Adjuntar Archivo(s)</span><input type="file" multiple className="hidden" onChange={(e) => handleFileUpload(selectedTramo.id, faseKey, task.id, e)} /></label></div>
+                                                    <div className="pl-8 pt-1">
+                                                        <label className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 bg-white border rounded-lg transition-all shadow-sm ${isUploading ? 'text-slate-400 border-slate-200 cursor-not-allowed' : 'text-slate-500 hover:text-blue-600 cursor-pointer border-slate-200 hover:border-blue-300 hover:bg-blue-50'}`}>
+                                                            {isUploading ? <><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-slate-400"></div><span>Subiendo...</span></> : <><Icon name="Upload" className="w-4 h-4" /><span>Adjuntar Archivo(s)</span><input type="file" multiple className="hidden" disabled={isUploading} onChange={(e) => handleFileUpload(selectedTramo.id, faseKey, task.id, e)} /></>}
+                                                        </label>
+                                                    </div>
                                                 </div>
                                                 );
                                             })}
@@ -552,6 +607,7 @@ export default function DashboardTroncales({ session }) {
                             <a href="#" className="text-white hover:text-blue-400 transition-colors flex items-center gap-2"><Icon name="Map" className="w-4 h-4" /> Tramos</a>
                             <a href="#" className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><Icon name="Users" className="w-4 h-4" /> Contratistas</a>
                             <a href="#" className="text-slate-400 hover:text-white transition-colors flex items-center gap-2"><Icon name="FileText" className="w-4 h-4" /> Reportes KMZ</a>
+                            <button onClick={async () => await supabase.auth.signOut()} className="text-red-400 hover:text-red-300 transition-colors flex items-center gap-2 ml-4"><Icon name="LogOut" className="w-4 h-4" /> Salir</button>
                         </div>
                     </div>
                 </div>
